@@ -442,15 +442,17 @@ def scatter_dists(models_df, outdir=FIGS_DIR):
     print "-------------"
     
     order = pylab.argsort(model_dists['plant'])
-    pylab.figure()
-    sns.set()
-    pylab.tight_layout()
     
     model_colors = {'plant' : 'r', 'centroid' : 'g', 'random' : 'm', 'barabasi' : 'c'}
     model_markers = {'plant' : 'x', 'centroid' : 'o', 'random' : '^', 'barabasi' : 's'}
     model_labels = {'plant': 'Plant arbor', 'centroid' : 'Centroid', 'random' : 'Random', 'barabasi' : 'Barabasi-Albert'}
    
     max_dist = float('-inf')
+    min_dist = float('inf')
+    
+    pylab.figure()
+    sns.set()
+    
     for model, dists in model_dists.iteritems():
         dists = pylab.array(dists)
         y = dists[order]
@@ -461,32 +463,35 @@ def scatter_dists(models_df, outdir=FIGS_DIR):
         x = pylab.arange(len(y))
 
         max_dist = max(max_dist, max(y))
+        min_dist = min(min_dist, min(y))
 
         color = model_colors[model]
         marker = model_markers[model]
         label = model_labels[model]
         pylab.scatter(x, y, label=label, c=color, marker=marker)
     
+    
     pylab.xlabel('plant index', fontsize=20)
     ylab = 'distance to Pareto front'
     if LOG_DIST:
         ylab = 'log(' + ylab + ')'
     pylab.ylabel(ylab, fontsize=20)
+    pylab.xticks(fontsize=20)
+    pylab.yticks(fontsize=20)
     leg = pylab.legend(ncol=2, frameon=True)
     leg.get_frame().set_linewidth(5)
     leg.get_frame().set_edgecolor('k')
     ax = pylab.gca()
     pylab.setp(ax.get_legend().get_texts(), fontsize=20) # for legend text
-    pylab.ylim(0, max_dist + 0.6)
+    pylab.ylim(min_dist - 0.1, max_dist + 0.6)
 
+    pylab.tight_layout()
     pylab.savefig('%s/pareto_dists.pdf' % outdir, format='pdf')
 
 def alphas_hist(df, outdir=FIGS_DIR, categories=None):
-    subset_cols = ['neuron name', 'neuron type']
+    subset_cols = ['plant']
     if categories != None:
-        for category in categories:
-            if category != 'neuron type':
-                subset_cols.append(category)
+        subset_cols += categories
     df2 = df.drop_duplicates(subset_cols)
     
     alphas = None
@@ -495,7 +500,7 @@ def alphas_hist(df, outdir=FIGS_DIR, categories=None):
     
     if categories == None:
         alphas = list(df2['alpha'])
-        print "all neurons mean alpha", pylab.mean(alphas)
+        print "all plants mean alpha", pylab.mean(alphas), '+/-', pylab.std(alphas, ddof=1)
         weights = pylab.ones_like(alphas) / len(alphas)
     else:
         alphas = []
@@ -503,7 +508,7 @@ def alphas_hist(df, outdir=FIGS_DIR, categories=None):
         labels = []
         for name, group in df2.groupby(categories):
             cat_alphas = group['alpha']
-            print name + " neurons mean alpha", pylab.mean(cat_alphas)
+            print name + " plants mean alpha", pylab.mean(cat_alphas)
             cat_weights = pylab.ones_like(cat_alphas) / len(cat_alphas)
             alphas.append(cat_alphas)
             weights.append(cat_weights)
@@ -534,9 +539,6 @@ def alphas_hist(df, outdir=FIGS_DIR, categories=None):
     pylab.savefig('%s/%s.pdf' % (outdir, name), format='pdf')
     pylab.close()
 
-def neuron_types_hist(df, outdir=FIGS_DIR):
-    alphas_hist(df, outdir, ['neuron type'])
-
 def category_correlation(df, category):
     alphas = df['alpha']
     for unique_val in df[category].unique():
@@ -555,7 +557,7 @@ def categories_correlations(df):
 
 def null_models_analysis(models_df):
     print "-----------------------------------------------------"
-    df2 = models_df[models_df['model'] != 'neural']
+    df2 = models_df[models_df['model'] != 'plant']
     for model, group in df2.groupby('model'):
         print '***%s***' % model
         trials = len(group['success'])
@@ -564,20 +566,9 @@ def null_models_analysis(models_df):
 
         ratios = group['ratio']
     
-        '''
-        successes = 0
-        trials = 0
-        ratios = []
-        for (neuron_name, neuron_type), group2 in group.groupby(['neuron name', 'neuron type']):
-            group2 = group2.head(n=20)
-            successes += sum(group2['success'])
-            trials += len(group2['success'])
-            ratios.append(pylab.mean(group2['ratio']))
-        '''
-
         print "success rate", float(successes) / float(trials), "trials", trials
         print "binomial p-value", binom_test(successes, trials)
-        print "neural to %s ratio" % model, pylab.mean(ratios)
+        print "plant to %s ratio" % model, pylab.mean(ratios)
         print "t-test p-value", ttest_1samp(ratios, popmean=1)
 
 def null_models_check(models_df):
@@ -596,13 +587,13 @@ def infmean(arr):
 
 def metadata(df):
     print "-----------------------------------------------------"
-    print "unique neurons"
-    print len(set(zip(df['neuron name'], df['neuron type'])))
+    print "unique plants"
+    print len(df['plant'].unique())
 
     for category in CATEGORIES:
         print "unique " + category
         print len(df[category].unique())
-        df2 = df.drop_duplicates(subset=['neuron name', category])
+        df2 = df.drop_duplicates(subset=['plant', category])
         df2 = add_count_col(df2, category)
         df2 = df2[df2['count'] >= 25]
         category_str = category.replace(' ', '_')
@@ -871,15 +862,13 @@ def main():
                                        models_file=models_file,\
                                        tradeoffs_file=tradeoffs_file)
    
-    print categories_df
-    print models_df
-
     if TEST_NEW_FUNCTION:
         scatter_dists(models_df, outdir=figs_dir)
         null_models_analysis(models_df)
+        alphas_hist(categories_df, outdir=figs_dir)
+        metadata(categories_df)
         return None
     
-    metadata(categories_df)
     print "-----------------------------------------------------"
     print "mean neural dist", pylab.mean(models_df['dist'][models_df['model'] == 'neural'])
     
@@ -889,8 +878,6 @@ def main():
      
     truncation_hist(categories_df, outdir=figs_dir)
     
-    alphas_hist(categories_df, outdir=figs_dir)
-    neuron_types_hist(categories_df, outdir=figs_dir)
     
     alphas_heat(categories_df, CATEGORIES, outdir=figs_dir)
     dist_heats(categories_df, CATEGORIES, DIST_FUNCS, outdir=figs_dir)
